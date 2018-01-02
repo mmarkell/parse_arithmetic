@@ -69,31 +69,55 @@ symbolize a b =
 
 
 symbolize_helper :: Expr -> String -> Symbol 
--- currently does not work on nested expressions like 
-    -- + + 1 1 + 1 1
--- but it does work on things like 
-    -- + 3 x 4 4
 
+symbolize_helper Empty b = Symbol (make_expr b) True -- empty expr
+symbolize_helper (Enum a) b = Symbol Empty False -- just num
+symbolize_helper (Estr a) b = Symbol Empty False -- just string
 
-symbolize_helper (Enum a) b = Symbol Empty False
-symbolize_helper (Estr a) b = Symbol Empty False
-symbolize_helper (Eop op Empty r) b = Symbol (Eop op (make_expr b) r) True
-symbolize_helper (Eop op (Eop l_op l_l l_r) Empty) b = 
+symbolize_helper (Eop op Empty Empty) b = Symbol (Eop op (make_expr b) Empty) True -- empty op
+symbolize_helper (Eop op (Enum l) (Enum r)) b = Symbol (Eop op (Enum l) (Enum r)) False -- both enums
+symbolize_helper (Eop op (Enum l) Empty) b = Symbol (Eop op (Enum l) (make_expr b)) True -- left enum, right empty
+symbolize_helper (Eop op Empty (Enum r)) b = Symbol (Eop op (make_expr b) (Enum r)) True -- right enum, left empty
+
+symbolize_helper (Eop op (Eop l_op l_l l_r) (Enum r)) b = -- left op, right enum
     do
         let l_sym = symbolize_helper (Eop l_op l_l l_r) b
         case l_sym of 
-            Symbol l_expr success -> if True then Symbol (Eop op l_expr Empty) True else Symbol Empty False
+            Symbol l_expr success -> if success == True then Symbol (Eop op l_expr (Enum r)) True else
+                Symbol (Eop op (Eop l_op l_l l_r) (Enum r)) False
 
-symbolize_helper (Eop op l Empty) b = Symbol (Eop op l (make_expr b)) True
-symbolize_helper (Eop op l (Eop r_op r_l r_r)) b =
-    do 
+symbolize_helper (Eop op (Enum l) (Eop r_op r_l r_r)) b =
+    do
         let r_sym = symbolize_helper (Eop r_op r_l r_r) b
         case r_sym of
-            Symbol r_expr success -> if True then Symbol (Eop op l r_expr) True else Symbol Empty False
+            Symbol r_expr success -> if success == True then Symbol (Eop op (Enum l) r_expr) True else 
+                Symbol (Eop op (Enum l) (Eop r_op r_l r_r)) False
 
-symbolize_helper (Empty) b = do
-    let b_expr = make_expr b
-    Symbol b_expr True
+-- all operator permutations
+
+symbolize_helper (Eop op (Eop l_op l_l l_r) Empty) b =  -- left op with any right
+    do
+        let l_sym = symbolize_helper (Eop l_op l_l l_r) b
+        case l_sym of 
+            Symbol l_expr success -> if success == True then Symbol (Eop op l_expr Empty) True else Symbol (Eop op (Eop l_op l_l l_r) (make_expr b)) True
+
+symbolize_helper (Eop op Empty (Eop r_op r_l r_r)) b =  -- right op with any left
+    do
+        let r_sym = symbolize_helper (Eop r_op r_l r_r) b
+        case r_sym of
+            Symbol r_expr success -> if success == True then Symbol (Eop op Empty r_expr) True else Symbol (Eop op (make_expr b) (Eop r_op r_l r_r)) True
+
+symbolize_helper (Eop op (Eop l_op l_l l_r) (Eop r_op r_l r_r)) b = -- full op with potential emptiness
+    do 
+        let l_sym = symbolize_helper (Eop l_op l_l l_r) b
+        case l_sym of 
+            Symbol l_expr success -> if success == True then Symbol (Eop op l_expr (Eop r_op r_l r_r)) True else
+                do
+                    let r_sym = symbolize_helper (Eop r_op r_l r_r) b
+                    case r_sym of
+                        Symbol r_expr success -> if success == True then Symbol (Eop op (Eop l_op l_l l_r) r_expr) True else Symbol (Eop op (Eop l_op l_l l_r) (Eop r_op r_l r_r)) False
+
+-- operator ends
 
 eval :: (Expr) -> (Value)
 eval a = 
